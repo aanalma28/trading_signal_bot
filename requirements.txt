@@ -1,0 +1,9 @@
+pandas
+requests
+pandas-ta
+numpy
+fastapi
+uvicorn
+python-dotenv
+schedule
+pydantic
