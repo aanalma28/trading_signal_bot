@@ -82,14 +82,13 @@ The frontend UI will run on `http://localhost:5173`.
 
 ---
 
-## Production Deployment (VPS / Docker)
+## Production Deployment (VPS)
 
-The project includes a robust `docker-compose` configuration utilizing an NGINX reverse proxy to serve both the React frontend and FastAPI backend effortlessly.
+Karena perbedaan spesifikasi dan limitasi keamanan tiap provider VPS (seperti isolasi kernel LXC), kami menyediakan **3 panduan deployment terpisah** agar Anda bisa memilih yang paling cocok dan dijamin berhasil untuk server Anda:
 
-1. Clone or upload the repository to your VPS.
-2. Ensure you have Docker and Docker Compose installed on your Linux server.
-3. Configure your `.env` file securely.
-4. Run the following command in the root directory:
+1. **[Native Linux Method](VPS_DEPLOYMENT_GUIDE.md)**: (Rekomendasi) Menjalankan backend dan frontend secara native tanpa Docker menggunakan `Nginx` dan `systemd`/`screen`. Cocok untuk VPS dengan spesifikasi sangat rendah (RAM < 1GB).
+2. **[Docker Hub Method](DOCKERHUB_DEPLOYMENT_GUIDE.md)**: Mem-*build* image Docker di laptop lokal dan sekadar melakukan `pull` di VPS. Ini adalah cara teraman jika VPS Anda menolak akses kompilasi root Docker.
+3. **Standar Docker Compose**: Jika VPS Anda memiliki akses kernel penuh (KVM/Dedicated), Anda bisa langsung mem-build dan menjalankannya di server dengan perintah:
 
 ```bash
 docker-compose up -d --build

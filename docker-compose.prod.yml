@@ -2,10 +2,7 @@ version: '3.8'
 
 services:
   backend:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      network: host
+    image: ${DOCKER_USERNAME}/liquidity_backend:latest
     container_name: liquidity_backend
     privileged: true
     env_file:
@@ -13,14 +10,9 @@ services:
     ports:
       - "8000:8000"
     restart: always
-    volumes:
-      - ./backend:/app/backend
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      network: host
+    image: ${DOCKER_USERNAME}/liquidity_frontend:latest
     container_name: liquidity_frontend
     privileged: true
     ports:
