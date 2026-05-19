@@ -7,3 +7,7 @@ uvicorn
 python-dotenv
 schedule
 pydantic
+sqlalchemy
+passlib[bcrypt]
+pyjwt
+slowapi

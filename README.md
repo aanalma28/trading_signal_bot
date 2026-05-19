@@ -5,6 +5,10 @@ A full-stack, automated crypto trading platform tailored for analyzing market st
 ## Features
 
 - **Advanced Backtesting Engine**: Test Liquidity Sweep strategies over historical data fetched directly from the Binance Futures API.
+- **Role-Based Access Control (RBAC)**: Secure authentication system with JWT. The application is hidden behind a login wall.
+  - **Admin Access**: Can run backtests AND control the Telegram bot (`username: admin` | `password: admin123`).
+  - **User Access**: Can only run backtests (`username: user` | `password: user123`).
+- **DDoS Protection**: Implements SlowAPI rate-limiting on authentication and backtest endpoints.
 - **Multi-Timeframe Analysis**: Built-in logic leveraging 1-Hour HTF (Higher Time Frame) trend identification and 15-Minute execution details.
 - **Dynamic Checklists & Ratings**: Provides a transparent 8-10 point checklist with a corresponding star rating (⭐⭐⭐⭐⭐) for every generated signal to grade the setup quality.
 - **Risk Management Integration**: Automatically calculates suggested Entry, Stop Loss (SL), and Take Profit (TP) targets based on custom risk percentages.

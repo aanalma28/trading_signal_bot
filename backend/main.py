@@ -1,6 +1,5 @@
 # pyrefly: ignore [missing-import]
-# pyrefly: ignore [missing-import]
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Request
 # pyrefly: ignore [missing-import]
 from fastapi.middleware.cors import CORSMiddleware
 # pyrefly: ignore [missing-import]
@@ -12,12 +11,38 @@ import subprocess
 import sys
 import os
 
+from sqlalchemy.orm import Session
 from data_fetcher import fetch_all_data
 from strategies import run_reversal_backtest, run_continuation_backtest
 
 import pandas as pd
 
+from database import engine, Base, get_db
+import models
+import auth
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+# Inisialisasi DB
+Base.metadata.create_all(bind=engine)
+
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Buat default user saat startup
+def init_db():
+    db = next(get_db())
+    if not db.query(models.User).first():
+        admin = models.User(username="admin", hashed_password=auth.get_password_hash("admin123"), role="admin")
+        user = models.User(username="user", hashed_password=auth.get_password_hash("user123"), role="user")
+        db.add(admin)
+        db.add(user)
+        db.commit()
+
+init_db()
 
 # Global variable to hold the bot process
 bot_process = None
@@ -47,12 +72,26 @@ def is_bot_running():
     except subprocess.CalledProcessError:
         return False
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+@app.post("/api/login")
+@limiter.limit("10/minute")
+def login(request: Request, req: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.username == req.username).first()
+    if not user or not auth.verify_password(req.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Username atau password salah")
+    
+    access_token = auth.create_access_token(data={"sub": user.username})
+    return {"access_token": access_token, "token_type": "bearer", "role": user.role}
+
 @app.get("/api/bot/status")
-def get_bot_status():
+def get_bot_status(current_user: models.User = Depends(auth.get_current_user)):
     return {"running": is_bot_running()}
 
 @app.post("/api/bot/start")
-def start_bot():
+def start_bot(current_user: models.User = Depends(auth.require_admin)):
     if is_bot_running():
         return {"status": "already_running"}
     
@@ -63,7 +102,7 @@ def start_bot():
     return {"status": "started"}
 
 @app.post("/api/bot/stop")
-def stop_bot():
+def stop_bot(current_user: models.User = Depends(auth.require_admin)):
     if is_bot_running():
         subprocess.run(["pkill", "-f", "bot_telegram.py"])
         return {"status": "stopped"}
@@ -71,7 +110,8 @@ def stop_bot():
 
 
 @app.post("/api/backtest")
-def run_backtest(req: BacktestRequest):
+@limiter.limit("20/minute")
+def run_backtest(request: Request, req: BacktestRequest, current_user: models.User = Depends(auth.get_current_user)):
     try:
         start_dt_naive = datetime.strptime(req.start_date, "%Y-%m-%d")
         end_dt_naive = datetime.strptime(req.end_date, "%Y-%m-%d")

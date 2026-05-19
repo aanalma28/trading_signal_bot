@@ -94,12 +94,39 @@ docker-compose up -d --build
 Jika terminal sudah menampilkan status `Started` atau `Done` berwarna hijau, artinya aplikasi Anda sudah mengudara secara global.
 
 Buka web browser di HP atau Laptop Anda, dan ketikkan alamat IP VPS Anda:
-👉 `http://IP_VPS_ANDA`
+👉 `http://IP_VPS_ANDA` (atau `https://domainanda.my.id` jika sudah disetup)
 
-Anda akan melihat tampilan web Liquidity Sweep, dan Anda sudah bisa langsung mengklik tombol **"Aktifkan Bot Telegram"** untuk memulai pemantauan market secara live!
+Anda akan disambut oleh **Halaman Login**. Masukkan kredensial default berikut:
+- **Sebagai Admin** (Bisa kontrol Bot & Backtest):
+  - Username: `admin`
+  - Password: `admin123`
+- **Sebagai User Biasa** (Hanya Backtest):
+  - Username: `user`
+  - Password: `user123`
+
+Setelah login sebagai admin, Anda akan melihat tampilan web Liquidity Sweep, dan Anda sudah bisa langsung mengklik tombol **"Aktifkan Bot Telegram"** untuk memulai pemantauan market secara live!
 
 ### Perintah Bermanfaat Tambahan (Troubleshooting):
 * **Melihat status jalannya aplikasi**: `docker-compose ps`
 * **Mematikan server**: `docker-compose down`
 * **Melihat log/error dari backend**: `docker logs liquidity_backend`
 * **Melihat log/error dari frontend**: `docker logs liquidity_frontend`
+
+---
+
+## 8. Mengarahkan Nama Domain (.my.id) ke VPS & Setup HTTPS (Opsional)
+
+Jika Anda sudah membeli domain (seperti `.my.id`), Anda bisa menautkannya ke VPS agar dapat diakses menggunakan nama (misal: `https://namasaya.my.id`) dan mendapatkan "Gembok Hijau" HTTPS secara gratis menggunakan **Cloudflare**. Cara ini sangat disarankan karena Anda tidak perlu mengubah kode apapun di server.
+
+1. **Buat Akun Cloudflare**: Daftar secara gratis di [cloudflare.com](https://www.cloudflare.com).
+2. **Tambahkan Domain**: Klik "Add a Site", masukkan domain `.my.id` Anda, dan pilih paket "Free".
+3. **Ubah Nameserver**: Cloudflare akan memberikan 2 buah *Nameserver* (contoh: `dana.ns.cloudflare.com` & `mark.ns.cloudflare.com`). Login ke website tempat Anda membeli domain (misal: Niagahoster, DomaiNesia), masuk ke menu **DNS Management / Nameserver**, lalu ganti nameserver bawaannya dengan nameserver dari Cloudflare.
+4. **Buat A Record**: Di *dashboard* Cloudflare, masuk ke menu **DNS** > "Add Record".
+   - **Type**: `A`
+   - **Name**: `@`
+   - **IPv4 Address**: Masukkan **IP Publik VPS Anda**.
+   - **Proxy status**: Pastikan logo awan menyala **Orange (Proxied)**.
+   - Klik **Save**.
+5. **Aktifkan HTTPS**: Masuk ke menu **SSL/TLS** di Cloudflare, lalu pastikan modenya berada di pilihan **Flexible** atau **Full**.
+6. **Selesai!** 
+   Propagasi domain biasanya memakan waktu beberapa menit hingga maksimal 24 jam. Setelah itu, Anda bisa membuka `https://domainanda.my.id` dan website *trading bot* Anda akan muncul dengan aman terlindungi enkripsi!

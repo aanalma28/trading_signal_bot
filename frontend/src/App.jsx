@@ -1,7 +1,18 @@
 import { useState, useEffect } from 'react'
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import Login from './Login'
 import './App.css'
 
-function App() {
+function BacktestDashboard() {
+  const navigate = useNavigate()
+  const token = localStorage.getItem('token')
+  const role = localStorage.getItem('role')
+
+  const handleLogout = () => {
+    localStorage.removeItem('token')
+    localStorage.removeItem('role')
+    navigate('/login')
+  }
   const [loading, setLoading] = useState(false)
   const [results, setResults] = useState(null)
   const [error, setError] = useState(null)
@@ -16,7 +27,10 @@ function App() {
 
   const fetchBotStatus = async () => {
     try {
-      const res = await fetch('/api/bot/status')
+      const res = await fetch('/api/bot/status', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.status === 401) return handleLogout()
       const data = await res.json()
       setBotRunning(data.running)
     } catch (e) {
@@ -28,7 +42,11 @@ function App() {
     setBotLoading(true)
     try {
       const endpoint = botRunning ? '/api/bot/stop' : '/api/bot/start'
-      await fetch(endpoint, { method: 'POST' })
+      const res = await fetch(endpoint, { 
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.status === 401) return handleLogout()
       await fetchBotStatus()
     } catch (e) {
       alert("Gagal mengubah status bot")
@@ -70,9 +88,13 @@ function App() {
     try {
       const response = await fetch('/api/backtest', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify(formData)
       })
+      if (response.status === 401) return handleLogout()
       
       if (!response.ok) {
         const errData = await response.json()
@@ -98,20 +120,23 @@ function App() {
       <header className="header" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
         <div>
           <h1>Liquidity Sweep</h1>
-          <p>Platform pengujian strategi trading & bot notifikasi</p>
+          <p>Bot Trading & Backtester Otomatis</p>
         </div>
-        <div className="bot-control">
-          <button 
-            className="btn-primary" 
-            onClick={toggleBot}
-            disabled={botLoading}
-            style={{
-              backgroundColor: botRunning ? 'var(--danger-color)' : 'var(--success-color)',
-              boxShadow: botRunning ? '0 0 15px rgba(239, 68, 68, 0.4)' : '0 0 15px rgba(16, 185, 129, 0.4)'
-            }}
-          >
-            {botLoading ? 'Memproses...' : botRunning ? '🛑 Matikan Bot Telegram' : '🚀 Aktifkan Bot Telegram'}
-          </button>
+        
+        <div style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
+          {role === 'admin' && (
+            <div className="bot-controller">
+              <span style={{marginRight: '1rem', fontWeight: '500'}}>Telegram Bot:</span>
+              <button 
+                className={`btn ${botRunning ? 'btn-danger' : 'btn-primary'}`}
+                onClick={toggleBot}
+                disabled={botLoading}
+              >
+                {botLoading ? 'Memproses...' : (botRunning ? '🔴 Matikan Bot' : '🟢 Aktifkan Bot')}
+              </button>
+            </div>
+          )}
+          <button onClick={handleLogout} className="btn" style={{backgroundColor: 'transparent', border: '1px solid var(--danger-color)', color: 'var(--danger-color)'}}>Logout</button>
         </div>
       </header>
 
@@ -279,6 +304,25 @@ function App() {
         </main>
       </div>
     </div>
+  )
+}
+
+const ProtectedRoute = ({ children }) => {
+  const token = localStorage.getItem('token')
+  if (!token) return <Navigate to="/login" replace />
+  return children
+}
+
+function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/" element={
+        <ProtectedRoute>
+          <BacktestDashboard />
+        </ProtectedRoute>
+      } />
+    </Routes>
   )
 }
 
