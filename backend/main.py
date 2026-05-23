@@ -11,6 +11,7 @@ import subprocess
 import sys
 import os
 
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session
 from data_fetcher import fetch_all_data
 from strategies import run_reversal_backtest, run_continuation_backtest
@@ -20,8 +21,11 @@ import pandas as pd
 from database import engine, Base, get_db
 import models
 import auth
+# pyrefly: ignore [missing-import]
 from slowapi import Limiter, _rate_limit_exceeded_handler
+# pyrefly: ignore [missing-import]
 from slowapi.util import get_remote_address
+# pyrefly: ignore [missing-import]
 from slowapi.errors import RateLimitExceeded
 
 # Inisialisasi DB
@@ -62,7 +66,6 @@ class BacktestRequest(BaseModel):
     start_date: str
     end_date: str
     initial_balance: float
-    stop_loss_pct: float
     monthly_topup: float = 0.0
 
 def is_bot_running():
@@ -128,9 +131,9 @@ def run_backtest(request: Request, req: BacktestRequest, current_user: models.Us
             raise HTTPException(status_code=404, detail="Gagal mengambil data dari Binance")
             
         if req.strategy == "reversal":
-            signals = run_reversal_backtest(df, req.stop_loss_pct / 100.0)
+            signals = run_reversal_backtest(df)
         elif req.strategy == "continuation":
-            signals = run_continuation_backtest(df, req.stop_loss_pct / 100.0)
+            signals = run_continuation_backtest(df)
         else:
             raise HTTPException(status_code=400, detail="Strategi tidak dikenali")
             
@@ -141,7 +144,7 @@ def run_backtest(request: Request, req: BacktestRequest, current_user: models.Us
         rr_5_count = 0
         
         results = []
-        stop_loss_dec = req.stop_loss_pct / 100.0
+        stop_loss_dec = 0.02  # Hardcode 2% account risk per trade
         
         start_date = start_dt_naive
         next_topup_date = start_date + pd.Timedelta(days=30)
@@ -159,9 +162,11 @@ def run_backtest(request: Request, req: BacktestRequest, current_user: models.Us
             rr = s['Max_RR']
             status = "LOSS"
             
-            # RR >= 2 is considered a WIN since we target RR 1:2
-            if rr >= 2:
-                current_balance += current_balance * (stop_loss_dec * 2)
+            target_rr = s.get('TP_RR', 2.0)
+            
+            # Jika Max_RR melebihi atau sama dengan target RR, maka dianggap WIN
+            if rr >= target_rr:
+                current_balance += current_balance * (stop_loss_dec * target_rr)
                 status = "WIN"
             else:
                 current_balance -= current_balance * stop_loss_dec
@@ -176,6 +181,7 @@ def run_backtest(request: Request, req: BacktestRequest, current_user: models.Us
                 "entry_price": s["Entry_Price"],
                 "sl_price": s.get("SL_Price", 0),
                 "tp_price": s.get("TP_Price", 0),
+                "target_note": s.get("Target_Note", ""),
                 "stars": s.get("Stars", "⭐⭐⭐"),
                 "max_rr": rr,
                 "status": status,

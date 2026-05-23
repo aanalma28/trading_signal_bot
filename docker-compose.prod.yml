@@ -4,19 +4,15 @@ services:
   backend:
     image: ${DOCKER_USERNAME}/liquidity_backend:latest
     container_name: liquidity_backend
-    privileged: true
+    network_mode: host
     env_file:
       - .env
-    ports:
-      - "8000:8000"
     restart: always
 
   frontend:
     image: ${DOCKER_USERNAME}/liquidity_frontend:latest
     container_name: liquidity_frontend
-    privileged: true
-    ports:
-      - "80:80"
+    network_mode: host
     depends_on:
       - backend
     restart: always

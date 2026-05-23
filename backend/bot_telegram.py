@@ -9,7 +9,7 @@ import pandas_ta as ta
 from dotenv import load_dotenv
 
 # Import fungsi dari data_fetcher
-from data_fetcher import fetch_paginated_klines, fetch_paginated_oi, fetch_funding_rate
+from data_fetcher import fetch_paginated_klines, fetch_paginated_oi, fetch_funding_rate, fetch_paginated_ls_ratio
 
 load_dotenv()
 
@@ -39,19 +39,25 @@ def send_telegram_message(message):
 
 def get_live_data():
     print(f"[{datetime.now()}] Mengambil data live {SYMBOL}...")
-    # Fetch 1H data for HTF Trend (EMA 50 & 200, butuh > 200 candle)
+    # Fetch 1H data for HTF Trend (EMA 50 & 200)
     df_1h = fetch_paginated_klines(SYMBOL, "1h", limit_days=10)
     
-    # Fetch 15m data for entry details (Sweep, OI, etc)
-    df_15m_klines = fetch_paginated_klines(SYMBOL, "15m", limit_days=2) # 2 hari = 192 candle
-    df_15m_oi = fetch_paginated_oi(SYMBOL, "15m", 192)
+    # Fetch 15m data for entry details (Butuh >150 candle untuk Major S/R)
+    df_15m_klines = fetch_paginated_klines(SYMBOL, "15m", limit_days=3) # 3 hari = 288 candle
+    df_15m_oi = fetch_paginated_oi(SYMBOL, "15m", 288)
+    df_15m_ls = fetch_paginated_ls_ratio(SYMBOL, "15m", 288)
     df_funding = fetch_funding_rate(SYMBOL, 50)
     
     # Merge 15m data
     df_15m = pd.merge(df_15m_klines, df_15m_oi, on="timestamp", how="left")
+    if not df_15m_ls.empty:
+        df_15m = pd.merge(df_15m, df_15m_ls, on="timestamp", how="left")
+    else:
+        df_15m['longShortRatio'] = 1.0
     df_15m = pd.merge_asof(df_15m.sort_values('timestamp'), df_funding.sort_values('timestamp'), on='timestamp', direction='backward')
     df_15m['fundingRate'] = df_15m['fundingRate'].fillna(0.0)
     df_15m['openInterest'] = df_15m['openInterest'].ffill().bfill()
+    df_15m['longShortRatio'] = df_15m['longShortRatio'].ffill().bfill()
     
     return df_1h, df_15m
 
@@ -80,19 +86,25 @@ def analyze_market():
         df_15m['EMA_21'] = ta.ema(df_15m['close'], length=21)
         df_15m['RSI'] = ta.rsi(df_15m['close'], length=14)
         df_15m['Volume_SMA'] = ta.sma(df_15m['volume'], length=20)
+        df_15m['ATR'] = ta.atr(df_15m['high'], df_15m['low'], df_15m['close'], length=14)
         
-        window = 30
-        df_15m['Swing_High'] = df_15m['high'].rolling(window=window, min_periods=5).max().shift(1)
-        df_15m['Swing_Low'] = df_15m['low'].rolling(window=window, min_periods=5).min().shift(1)
+        # Minor S/R
+        df_15m['Swing_High'] = df_15m['high'].rolling(window=30, min_periods=5).max().shift(1)
+        df_15m['Swing_Low'] = df_15m['low'].rolling(window=30, min_periods=5).min().shift(1)
+        
+        # Major S/R
+        df_15m['Major_Swing_High'] = df_15m['high'].rolling(window=150, min_periods=10).max().shift(1)
+        df_15m['Major_Swing_Low'] = df_15m['low'].rolling(window=150, min_periods=10).min().shift(1)
         
         df_15m['OI_Change'] = df_15m['openInterest'].pct_change() * 100
         df_15m['OI_Change'] = df_15m['OI_Change'].fillna(0)
         
-        # Gunakan iloc[-2] karena iloc[-1] adalah candle yang masih berjalan (belum close)
+        # Gunakan iloc[-2] karena iloc[-1] adalah candle yang masih berjalan
         current = df_15m.iloc[-2]
         prev = df_15m.iloc[-3]
         
         candle_range = current['high'] - current['low']
+        atr = current['ATR'] if pd.notna(current['ATR']) else candle_range
         is_active_session = is_in_active_session(current['timestamp'])
         
         message = ""
@@ -114,18 +126,46 @@ def analyze_market():
         rsi_bull = current['RSI'] > prev['RSI'] and current['low'] < prev['low']
         momentum_bull = current['close'] > current['EMA_9'] or current['close'] > current['EMA_21']
         
+        ls_ratio = current.get('longShortRatio', 1.0)
+        imbalance_favorable_bull = ls_ratio < 0.95
+        imbalance_unfavorable_bull = ls_ratio > 1.05
+        
         if heatmap_bull and sweep_bull:
-            score = sum([candle_bull, oi_bull, funding_bull, rsi_bull, momentum_bull]) + 3 # +3 untuk Heatmap, Sweep, ChoCh Proxy
+            score = sum([candle_bull, oi_bull, funding_bull, rsi_bull, momentum_bull]) + 3
+            if imbalance_favorable_bull:
+                score += 2
+            elif imbalance_unfavorable_bull:
+                score -= 2
+                
+            entry_price = current['close']
+            sl_price = current['Swing_Low'] - (0.5 * atr)
+            min_risk = entry_price * 0.005
+            if sl_price >= entry_price or (entry_price - sl_price) < min_risk:
+                sl_price = entry_price - min_risk
+            risk = entry_price - sl_price
+            
+            major_res = current['Major_Swing_High']
+            rr_to_res = (major_res - entry_price) / risk if risk > 0 else 0
+            
+            if rr_to_res >= 2.0:
+                tp_rr = min(rr_to_res, 5.0)
+                tp_price = entry_price + (risk * tp_rr)
+                score += 2
+                target_note = f"Major Resistance (RR 1:{tp_rr:.1f})"
+            else:
+                tp_rr = 2.0
+                tp_price = entry_price + (risk * 2.0)
+                score -= 1
+                target_note = "Forced RR 1:2 (Major Res Terlalu Dekat)"
+                
             stars = "⭐⭐⭐⭐⭐" if score >= 8 else "⭐⭐⭐⭐" if score >= 6 else "⭐⭐⭐"
             if score >= 5: # Minimal grade C
-                entry_price = current['close']
-                sl_price = entry_price * (1 - 0.02)
-                tp_price = entry_price * (1 + 0.04)
+                sl_pct = (risk / entry_price) * 100
                 message += f"🟢 *LONG SIGNAL: LIQUIDITY REVERSAL*\n"
                 message += f"Pair: {SYMBOL}\nTimeframe: 15m\nRating: {stars}\n\n"
-                message += f"🎯 *Target (RR 1:2)*\n"
+                message += f"🎯 *Target: {target_note}*\n"
                 message += f"Entry: `{entry_price:.5f}`\n"
-                message += f"SL (2%): `{sl_price:.5f}`\n"
+                message += f"SL ({sl_pct:.2f}%): `{sl_price:.5f}` (ATR Buffer)\n"
                 message += f"TP: `{tp_price:.5f}`\n\n"
                 message += f"*Checklist:*\n"
                 message += f"✅ Heatmap: Harga masuk area swing low\n"
@@ -135,6 +175,7 @@ def analyze_market():
                 message += f"{'✅' if oi_bull else '❌'} OI: Turun tajam saat sweep\n"
                 message += f"{'✅' if funding_bull else '❌'} Funding Rate: Negatif\n"
                 message += f"{'✅' if rsi_bull else '❌'} RSI: Divergence terjadi\n"
+                message += f"{'✅' if not imbalance_unfavorable_bull else '❌'} Heatmap Imbalance (LS Ratio: {ls_ratio:.2f})\n"
                 message += f"{'✅' if momentum_bull else '❌'} EMA: Close di atas 9/21\n"
                 
         # BEARISH REVERSAL
@@ -151,18 +192,45 @@ def analyze_market():
         rsi_bear = current['RSI'] < prev['RSI'] and current['high'] > prev['high']
         momentum_bear = current['close'] < current['EMA_9'] or current['close'] < current['EMA_21']
         
+        imbalance_favorable_bear = ls_ratio > 1.05
+        imbalance_unfavorable_bear = ls_ratio < 0.95
+        
         if heatmap_bear and sweep_bear:
             score = sum([candle_bear, oi_bear, funding_bear, rsi_bear, momentum_bear]) + 3
+            if imbalance_favorable_bear:
+                score += 2
+            elif imbalance_unfavorable_bear:
+                score -= 2
+                
+            entry_price = current['close']
+            sl_price = current['Swing_High'] + (0.5 * atr)
+            min_risk = entry_price * 0.005
+            if sl_price <= entry_price or (sl_price - entry_price) < min_risk:
+                sl_price = entry_price + min_risk
+            risk = sl_price - entry_price
+            
+            major_sup = current['Major_Swing_Low']
+            rr_to_sup = (entry_price - major_sup) / risk if risk > 0 else 0
+            
+            if rr_to_sup >= 2.0:
+                tp_rr = min(rr_to_sup, 5.0)
+                tp_price = entry_price - (risk * tp_rr)
+                score += 2
+                target_note = f"Major Support (RR 1:{tp_rr:.1f})"
+            else:
+                tp_rr = 2.0
+                tp_price = entry_price - (risk * 2.0)
+                score -= 1
+                target_note = "Forced RR 1:2 (Major Sup Terlalu Dekat)"
+                
             stars = "⭐⭐⭐⭐⭐" if score >= 8 else "⭐⭐⭐⭐" if score >= 6 else "⭐⭐⭐"
             if score >= 5:
-                entry_price = current['close']
-                sl_price = entry_price * (1 + 0.02)
-                tp_price = entry_price * (1 - 0.04)
+                sl_pct = (risk / entry_price) * 100
                 message += f"🔴 *SHORT SIGNAL: LIQUIDITY REVERSAL*\n"
                 message += f"Pair: {SYMBOL}\nTimeframe: 15m\nRating: {stars}\n\n"
-                message += f"🎯 *Target (RR 1:2)*\n"
+                message += f"🎯 *Target: {target_note}*\n"
                 message += f"Entry: `{entry_price:.5f}`\n"
-                message += f"SL (2%): `{sl_price:.5f}`\n"
+                message += f"SL ({sl_pct:.2f}%): `{sl_price:.5f}` (ATR Buffer)\n"
                 message += f"TP: `{tp_price:.5f}`\n\n"
                 message += f"*Checklist:*\n"
                 message += f"✅ Heatmap: Harga masuk area swing high\n"
@@ -172,6 +240,7 @@ def analyze_market():
                 message += f"{'✅' if oi_bear else '❌'} OI: Turun tajam saat sweep\n"
                 message += f"{'✅' if funding_bear else '❌'} Funding Rate: Positif\n"
                 message += f"{'✅' if rsi_bear else '❌'} RSI: Divergence terjadi\n"
+                message += f"{'✅' if not imbalance_unfavorable_bear else '❌'} Heatmap Imbalance (LS Ratio: {ls_ratio:.2f})\n"
                 message += f"{'✅' if momentum_bear else '❌'} EMA: Close di bawah 9/21\n"
 
 
@@ -182,17 +251,40 @@ def analyze_market():
         volume_bull = current['volume'] > current['Volume_SMA']
         
         if trend_bull and sweep_bull:
-            score = sum([candle_bull, momentum_bull, volume_bull, oi_bull, funding_bull, is_active_session]) + 4 # +4 utk wajin
+            score = sum([candle_bull, momentum_bull, volume_bull, oi_bull, funding_bull, is_active_session]) + 4
+            if imbalance_favorable_bull:
+                score += 2
+            elif imbalance_unfavorable_bull:
+                score -= 2
+                
+            entry_price = current['close']
+            sl_price = current['Swing_Low'] - (0.5 * atr)
+            min_risk = entry_price * 0.005
+            if sl_price >= entry_price or (entry_price - sl_price) < min_risk:
+                sl_price = entry_price - min_risk
+            risk = entry_price - sl_price
+            
+            major_res = current['Major_Swing_High']
+            rr_to_res = (major_res - entry_price) / risk if risk > 0 else 0
+            if rr_to_res >= 2.0:
+                tp_rr = min(rr_to_res, 5.0)
+                tp_price = entry_price + (risk * tp_rr)
+                score += 2
+                target_note = f"Major Resistance (RR 1:{tp_rr:.1f})"
+            else:
+                tp_rr = 2.0
+                tp_price = entry_price + (risk * 2.0)
+                score -= 1
+                target_note = "Forced RR 1:2 (Major Res Terlalu Dekat)"
+                
             stars = "⭐⭐⭐⭐⭐" if score >= 9 else "⭐⭐⭐⭐" if score >= 7 else "⭐⭐⭐"
             if score >= 6:
-                entry_price = current['close']
-                sl_price = entry_price * (1 - 0.02)
-                tp_price = entry_price * (1 + 0.04)
+                sl_pct = (risk / entry_price) * 100
                 message += f"🟢 *LONG SIGNAL: TREND CONTINUATION*\n"
                 message += f"Pair: {SYMBOL}\nTimeframe: 15m (1H Trend)\nRating: {stars}\n\n"
-                message += f"🎯 *Target (RR 1:2)*\n"
+                message += f"🎯 *Target: {target_note}*\n"
                 message += f"Entry: `{entry_price:.5f}`\n"
-                message += f"SL (2%): `{sl_price:.5f}`\n"
+                message += f"SL ({sl_pct:.2f}%): `{sl_price:.5f}` (ATR Buffer)\n"
                 message += f"TP: `{tp_price:.5f}`\n\n"
                 message += f"*Checklist:*\n"
                 message += f"✅ Trend HTF: EMA 50 > 200 (1H)\n"
@@ -204,6 +296,7 @@ def analyze_market():
                 message += f"{'✅' if momentum_bull else '❌'} EMA: Close di atas 9/21\n"
                 message += f"{'✅' if volume_bull else '❌'} Volume: Meningkat\n"
                 message += f"{'✅' if funding_bull else '❌'} Funding Rate: Negatif\n"
+                message += f"{'✅' if not imbalance_unfavorable_bull else '❌'} Heatmap Imbalance (LS Ratio: {ls_ratio:.2f})\n"
                 message += f"{'✅' if is_active_session else '❌'} Session: Volatilitas tinggi (London/US)\n"
 
         trend_bear = last_1h['EMA_50'] < last_1h['EMA_200']
@@ -211,16 +304,39 @@ def analyze_market():
         
         if trend_bear and sweep_bear:
             score = sum([candle_bear, momentum_bear, volume_bear, oi_bear, funding_bear, is_active_session]) + 4
+            if imbalance_favorable_bear:
+                score += 2
+            elif imbalance_unfavorable_bear:
+                score -= 2
+                
+            entry_price = current['close']
+            sl_price = current['Swing_High'] + (0.5 * atr)
+            min_risk = entry_price * 0.005
+            if sl_price <= entry_price or (sl_price - entry_price) < min_risk:
+                sl_price = entry_price + min_risk
+            risk = sl_price - entry_price
+            
+            major_sup = current['Major_Swing_Low']
+            rr_to_sup = (entry_price - major_sup) / risk if risk > 0 else 0
+            if rr_to_sup >= 2.0:
+                tp_rr = min(rr_to_sup, 5.0)
+                tp_price = entry_price - (risk * tp_rr)
+                score += 2
+                target_note = f"Major Support (RR 1:{tp_rr:.1f})"
+            else:
+                tp_rr = 2.0
+                tp_price = entry_price - (risk * 2.0)
+                score -= 1
+                target_note = "Forced RR 1:2 (Major Sup Terlalu Dekat)"
+                
             stars = "⭐⭐⭐⭐⭐" if score >= 9 else "⭐⭐⭐⭐" if score >= 7 else "⭐⭐⭐"
             if score >= 6:
-                entry_price = current['close']
-                sl_price = entry_price * (1 + 0.02)
-                tp_price = entry_price * (1 - 0.04)
+                sl_pct = (risk / entry_price) * 100
                 message += f"🔴 *SHORT SIGNAL: TREND CONTINUATION*\n"
                 message += f"Pair: {SYMBOL}\nTimeframe: 15m (1H Trend)\nRating: {stars}\n\n"
-                message += f"🎯 *Target (RR 1:2)*\n"
+                message += f"🎯 *Target: {target_note}*\n"
                 message += f"Entry: `{entry_price:.5f}`\n"
-                message += f"SL (2%): `{sl_price:.5f}`\n"
+                message += f"SL ({sl_pct:.2f}%): `{sl_price:.5f}` (ATR Buffer)\n"
                 message += f"TP: `{tp_price:.5f}`\n\n"
                 message += f"*Checklist:*\n"
                 message += f"✅ Trend HTF: EMA 50 < 200 (1H)\n"
@@ -232,6 +348,7 @@ def analyze_market():
                 message += f"{'✅' if momentum_bear else '❌'} EMA: Close di bawah 9/21\n"
                 message += f"{'✅' if volume_bear else '❌'} Volume: Meningkat\n"
                 message += f"{'✅' if funding_bear else '❌'} Funding Rate: Positif\n"
+                message += f"{'✅' if not imbalance_unfavorable_bear else '❌'} Heatmap Imbalance (LS Ratio: {ls_ratio:.2f})\n"
                 message += f"{'✅' if is_active_session else '❌'} Session: Volatilitas tinggi (London/US)\n"
 
         if message != "":

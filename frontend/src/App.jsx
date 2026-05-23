@@ -65,8 +65,7 @@ function BacktestDashboard() {
     start_date: thirtyDaysAgo,
     end_date: today,
     initial_balance: 10,
-    monthly_topup: 0,
-    stop_loss_pct: 2.0
+    monthly_topup: 0
   })
 
   const handleChange = (e) => {
@@ -184,11 +183,6 @@ function BacktestDashboard() {
             <div className="form-group">
               <label>Top-Up Bulanan ($)</label>
               <input type="number" className="form-control" name="monthly_topup" value={formData.monthly_topup} onChange={handleChange} step="0.01" />
-            </div>
-
-            <div className="form-group">
-              <label>Batas Stop Loss (%)</label>
-              <input type="number" className="form-control" name="stop_loss_pct" value={formData.stop_loss_pct} onChange={handleChange} step="0.1" />
             </div>
 
             <button type="submit" className="btn-primary" disabled={loading}>

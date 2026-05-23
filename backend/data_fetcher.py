@@ -81,12 +81,43 @@ def fetch_funding_rate(symbol, limit=1000, end_time_ms=None):
         df = df[["timestamp", "fundingRate"]]
     return df
 
+def fetch_paginated_ls_ratio(symbol, period="15m", total_candles=3000, end_time_ms=None):
+    url = "https://fapi.binance.com/futures/data/globalLongShortAccountRatio"
+    all_data = []
+    end_time = end_time_ms
+    
+    print(f"Fetching LS Ratio for {symbol}...")
+    while len(all_data) < total_candles:
+        limit = min(500, total_candles - len(all_data))
+        params = {"symbol": symbol, "period": period, "limit": limit}
+        if end_time:
+            params["endTime"] = end_time
+            
+        response = requests.get(url, params=params)
+        data = response.json()
+        
+        if not data or type(data) is dict or len(data) == 0:
+            break
+            
+        all_data = data + all_data
+        end_time = data[0]['timestamp'] - 1
+        time.sleep(0.1)
+        
+    df = pd.DataFrame(all_data)
+    if not df.empty:
+        df.drop_duplicates(subset=['timestamp'], inplace=True)
+        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+        df["longShortRatio"] = df["longShortRatio"].astype(float)
+        df = df[["timestamp", "longShortRatio"]]
+    return df
+
 def fetch_all_data(symbol, interval, limit_days, end_time_ms=None):
     total_candles = int((limit_days * 24 * 60) / int(interval.replace('m', ''))) if 'm' in interval else 1000
     df_klines = fetch_paginated_klines(symbol, interval, limit_days, end_time_ms)
     if df_klines.empty: return pd.DataFrame()
     
     df_oi = fetch_paginated_oi(symbol, interval, total_candles, end_time_ms)
+    df_ls = fetch_paginated_ls_ratio(symbol, interval, total_candles, end_time_ms)
     df_funding = fetch_funding_rate(symbol, 1000, end_time_ms)
     
     # Merge
@@ -95,6 +126,11 @@ def fetch_all_data(symbol, interval, limit_days, end_time_ms=None):
     else:
         df = df_klines.copy()
         df['openInterest'] = float('nan')
+        
+    if not df_ls.empty:
+        df = pd.merge(df, df_ls, on="timestamp", how="left")
+    else:
+        df['longShortRatio'] = 1.0
         
     if not df_funding.empty:
         df = pd.merge_asof(df.sort_values('timestamp'), df_funding.sort_values('timestamp'), on='timestamp', direction='backward')
