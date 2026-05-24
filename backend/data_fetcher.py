@@ -4,6 +4,11 @@ import time
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# Tambahkan User-Agent standar agar tidak diblokir oleh Cloudflare Binance
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+}
+
 def fetch_paginated_klines(symbol, interval="15m", limit_days=30, end_time_ms=None):
     total_candles = int((limit_days * 24 * 60) / int(interval.replace('m', ''))) if 'm' in interval else 1000
     if interval == '1h': total_candles = limit_days * 24
@@ -20,7 +25,7 @@ def fetch_paginated_klines(symbol, interval="15m", limit_days=30, end_time_ms=No
         if end_time:
             params["endTime"] = end_time
             
-        response = requests.get(url, params=params, verify=False)
+        response = requests.get(url, params=params, verify=False, headers=HEADERS)
         try:
             data = response.json()
         except Exception as e:
@@ -55,7 +60,7 @@ def fetch_paginated_oi(symbol, period="15m", total_candles=3000, end_time_ms=Non
         if end_time:
             params["endTime"] = end_time
             
-        response = requests.get(url, params=params, verify=False)
+        response = requests.get(url, params=params, verify=False, headers=HEADERS)
         try:
             data = response.json()
         except Exception as e:
@@ -84,7 +89,7 @@ def fetch_funding_rate(symbol, limit=1000, end_time_ms=None):
     if end_time_ms:
         params["endTime"] = end_time_ms
     try:
-        response_json = requests.get(url, params=params, verify=False).json()
+        response_json = requests.get(url, params=params, verify=False, headers=HEADERS).json()
     except Exception as e:
         print(f"Error parsing JSON from Binance (fundingRate).")
         raise Exception("Gagal terhubung ke Binance. Kemungkinan IP VPS Anda diblokir.")
@@ -107,7 +112,7 @@ def fetch_paginated_ls_ratio(symbol, period="15m", total_candles=3000, end_time_
         if end_time:
             params["endTime"] = end_time
             
-        response = requests.get(url, params=params, verify=False)
+        response = requests.get(url, params=params, verify=False, headers=HEADERS)
         try:
             data = response.json()
         except Exception as e:
