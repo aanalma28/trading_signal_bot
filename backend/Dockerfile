@@ -2,6 +2,9 @@ FROM python:3.12-slim-bullseye
 
 WORKDIR /app
 
+# Agar print() Python tidak tertahan di buffer Docker
+ENV PYTHONUNBUFFERED=1
+
 # Install procps agar perintah pgrep dan pkill bisa berjalan
 RUN apt-get update && apt-get install -y procps && rm -rf /var/lib/apt/lists/*
 

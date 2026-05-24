@@ -101,7 +101,7 @@ def start_bot(current_user: models.User = Depends(auth.require_admin)):
     current_dir = os.path.dirname(os.path.abspath(__file__))
     bot_script_path = os.path.join(current_dir, "bot_telegram.py")
     
-    subprocess.Popen([sys.executable, bot_script_path])
+    subprocess.Popen([sys.executable, "-u", bot_script_path])
     return {"status": "started"}
 
 @app.post("/api/bot/stop")
