@@ -1,6 +1,8 @@
 import requests
 import pandas as pd
 import time
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def fetch_paginated_klines(symbol, interval="15m", limit_days=30, end_time_ms=None):
     total_candles = int((limit_days * 24 * 60) / int(interval.replace('m', ''))) if 'm' in interval else 1000
@@ -18,7 +20,7 @@ def fetch_paginated_klines(symbol, interval="15m", limit_days=30, end_time_ms=No
         if end_time:
             params["endTime"] = end_time
             
-        response = requests.get(url, params=params)
+        response = requests.get(url, params=params, verify=False)
         data = response.json()
         
         if not data or type(data) is dict or len(data) == 0:
@@ -49,7 +51,7 @@ def fetch_paginated_oi(symbol, period="15m", total_candles=3000, end_time_ms=Non
         if end_time:
             params["endTime"] = end_time
             
-        response = requests.get(url, params=params)
+        response = requests.get(url, params=params, verify=False)
         data = response.json()
         
         if not data or type(data) is dict or len(data) == 0:
@@ -73,7 +75,7 @@ def fetch_funding_rate(symbol, limit=1000, end_time_ms=None):
     params = {"symbol": symbol, "limit": limit}
     if end_time_ms:
         params["endTime"] = end_time_ms
-    response = requests.get(url, params=params).json()
+    response = requests.get(url, params=params, verify=False).json()
     df = pd.DataFrame(response)
     if not df.empty:
         df["timestamp"] = pd.to_datetime(df["fundingTime"], unit="ms")
@@ -93,7 +95,7 @@ def fetch_paginated_ls_ratio(symbol, period="15m", total_candles=3000, end_time_
         if end_time:
             params["endTime"] = end_time
             
-        response = requests.get(url, params=params)
+        response = requests.get(url, params=params, verify=False)
         data = response.json()
         
         if not data or type(data) is dict or len(data) == 0:
