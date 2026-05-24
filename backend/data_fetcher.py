@@ -21,7 +21,11 @@ def fetch_paginated_klines(symbol, interval="15m", limit_days=30, end_time_ms=No
             params["endTime"] = end_time
             
         response = requests.get(url, params=params, verify=False)
-        data = response.json()
+        try:
+            data = response.json()
+        except Exception as e:
+            print(f"Error parsing JSON from Binance (klines). Response text: {response.text}")
+            raise Exception("Gagal terhubung ke Binance. Kemungkinan IP VPS Anda diblokir atau terkena limit.")
         
         if not data or type(data) is dict or len(data) == 0:
             break
@@ -52,7 +56,11 @@ def fetch_paginated_oi(symbol, period="15m", total_candles=3000, end_time_ms=Non
             params["endTime"] = end_time
             
         response = requests.get(url, params=params, verify=False)
-        data = response.json()
+        try:
+            data = response.json()
+        except Exception as e:
+            print(f"Error parsing JSON from Binance (openInterest). Response text: {response.text}")
+            raise Exception("Gagal terhubung ke Binance. Kemungkinan IP VPS Anda diblokir atau terkena limit.")
         
         if not data or type(data) is dict or len(data) == 0:
             break
@@ -75,8 +83,12 @@ def fetch_funding_rate(symbol, limit=1000, end_time_ms=None):
     params = {"symbol": symbol, "limit": limit}
     if end_time_ms:
         params["endTime"] = end_time_ms
-    response = requests.get(url, params=params, verify=False).json()
-    df = pd.DataFrame(response)
+    try:
+        response_json = requests.get(url, params=params, verify=False).json()
+    except Exception as e:
+        print(f"Error parsing JSON from Binance (fundingRate).")
+        raise Exception("Gagal terhubung ke Binance. Kemungkinan IP VPS Anda diblokir.")
+    df = pd.DataFrame(response_json)
     if not df.empty:
         df["timestamp"] = pd.to_datetime(df["fundingTime"], unit="ms")
         df["fundingRate"] = df["fundingRate"].astype(float)
@@ -96,7 +108,11 @@ def fetch_paginated_ls_ratio(symbol, period="15m", total_candles=3000, end_time_
             params["endTime"] = end_time
             
         response = requests.get(url, params=params, verify=False)
-        data = response.json()
+        try:
+            data = response.json()
+        except Exception as e:
+            print(f"Error parsing JSON from Binance (LS ratio). Response text: {response.text}")
+            raise Exception("Gagal terhubung ke Binance. Kemungkinan IP VPS Anda diblokir atau terkena limit.")
         
         if not data or type(data) is dict or len(data) == 0:
             break
